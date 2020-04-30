@@ -547,7 +547,7 @@ def test_not_picklable_sinks_inheritance(capsys, tmpdir):
 @pytest.mark.skipif(sys.version_info < (3, 7), reason="No 'os.register_at_fork()' function")
 @pytest.mark.parametrize("enqueue", [True, False])
 @pytest.mark.parametrize("deepcopied", [True, False])
-def test_no_deadlock_if_lock_in_use(tmpdir, enqueue, deepcopied):
+def test_no_deadlock_if_internal_lock_in_use(tmpdir, enqueue, deepcopied):
     if deepcopied:
         logger_ = copy.deepcopy(logger)
     else:
@@ -583,6 +583,27 @@ def test_no_deadlock_if_lock_in_use(tmpdir, enqueue, deepcopied):
     logger_.remove()
 
     assert output.read() in ("Main\nChild\n", "Child\nMain\n")
+
+
+@pytest.mark.skipif(sys.version_info < (3, 7), reason="No 'os.register_at_fork()' function")
+@pytest.mark.skipif(os.name == "nt", reason="Windows does not support forking")
+@pytest.mark.parametrize("enqueue", [True, False])
+def test_no_deadlock_if_external_lock_in_use(enqueue, capsys):
+    # Can't reproduce the bug on pytest (even if stderr is not wrapped), but let it anyway
+    logger.add(sys.stderr, enqueue=enqueue, catch=True, format="{message}")
+
+    for i in range(500):
+        logger.info("This is a message: {}", i)
+        process = multiprocessing.Process(target=lambda: None)
+        process.start()
+        process.join(1)
+        assert process.exitcode == 0
+
+    logger.remove()
+
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err == "".join("This is a message: %d\n" % i for i in range(500))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows does not support forking")
